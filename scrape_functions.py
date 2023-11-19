@@ -2,7 +2,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 import re
-
+import hashlib
 
 class ScrapeFunctions:
     @staticmethod
@@ -20,23 +20,27 @@ class ScrapeFunctions:
         session.mount('https://', adapter)
         return session  
     @staticmethod
-    def get_business_name(business_profile_soup):
+    def get_business_name(search_results_page):
         try:
-            business_name_element = business_profile_soup.find('div', class_= 'sales-info')
+            business_name_element = search_results_page.find('a', class_= 'business-name')
             if business_name_element:
-                business_name = business_name_element.find('h1', class_="dockable business-name")
-                return business_name.get_text(strip=True)
+                business_name = business_name_element.text
+                return business_name
                 
             return '_No Name Found_'
         except Exception as e:
             return f'_Exception: {str(e)}_'
     @staticmethod
-    def get_business_phone(business_profile_soup):
+    def get_business_phone(search_page):
         try:
-            business_phone_element = business_profile_soup.find('a', class_= 'phone dockable')
+            business_phone_element = search_page.find('div', class_= 'phones phone primary')
+
+            if business_phone_element is None:
+                business_phone_element = search_page.find('div', class_= 'phone')
+
             if business_phone_element:
-                phone_number = business_phone_element['href']
-                phone_number = phone_number.replace('tel:', '').translate({ord(c): None for c in '()- '})
+                phone_number = business_phone_element.get_text(strip=True)
+                phone_number = phone_number.translate({ord(c): None for c in '()- '})
                 phone_number = ''.join(filter(str.isdigit, phone_number))
                 return phone_number
             return '_No Phone Provided_'
@@ -203,3 +207,12 @@ class ScrapeFunctions:
             return 'No General Info Provided'
         except Exception as e:
             return f'Exception {str(e)}'
+    @staticmethod
+    def unique_identifier(business_phone, business_name):
+        try:
+            data_string = f'{business_name}{business_phone}'
+            hash_object = hashlib.md5(data_string.encode())
+            return hash_object.hexdigest()
+        except Exception as e:
+            return f'Exception: {str(e)}'
+        
