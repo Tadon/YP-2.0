@@ -37,7 +37,6 @@ class ScrapeFunctions:
 
             if business_phone_element is None:
                 business_phone_element = search_page.find('div', class_= 'phone')
-
             if business_phone_element:
                 phone_number = business_phone_element.get_text(strip=True)
                 phone_number = phone_number.translate({ord(c): None for c in '()- '})

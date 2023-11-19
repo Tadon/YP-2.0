@@ -23,32 +23,25 @@ session = ScrapeFunctions.requests_retry_session()
 #DB Connection parameters
 db_params = SearchInformation.db_params
  #connecting to database
-
 conn = psycopg2.connect(**db_params)
-
-#Adding phone numbers from exisiting database as unique keys to ensure no duplicate phone numbers
-cur = conn.cursor()
-#executing select action to SQL database
-cur.execute('SELECT "Unique ID" FROM yp_2')
-#adding phone numbers from business phones in db to list named rows
-rows = cur.fetchall()
-#adding business count for keeping track of how many businesses you havei n db
+#adding business counter to keep track of total businesses in db
 business_counter = 0
-#creating hashmap to verify that no new duplicated numbers will be added to db
+#executing select action to SQL database
+cur = conn.cursor()
+cur.execute('SELECT "Unique ID" FROM yp_2')
+#taking unique ID row to make as keys for dictionary, so when we add new businesses we can run the new unique id vs the dictionary to make sure we aren't adding duplicates
+rows = cur.fetchall()
 existing_numbers = {}
-#adding each phone number in row list from db as key to existing numbers hashmap to make unique number search more efficient
 for row in rows:
     unique_id = row[0]
     existing_numbers[unique_id] = ''
     business_counter += 1
-
-#Connecting to carrier DB to verify phone carrier
+#Connecting to carrier DB to to create another dictionary to make it easier to identify business telephone carrier.
 cur = conn.cursor()
 cur.execute('SELECT acex, "Company" FROM carrier_db')
 rows = cur.fetchall()
-#adding the phone number as key and phone carrier as pair in this dictionary for future comparison reason
 phone_carrier_dict = {row[0]: row[1] for row in rows}
-
+#counter to keep track of how many businesses are added during current session
 session_counter = 0
 try:
 #for key value pairs in iterating search dictionary
