@@ -1,8 +1,6 @@
 import psycopg2
 import requests
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
 from scrape_functions import ScrapeFunctions
 import time
 from search_information import SearchInformation
