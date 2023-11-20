@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 from scrape_functions import ScrapeFunctions
 import time
 from search_information import SearchInformation
+import psycopg2.extras
 #creating city and state array using search_information for more effecient, faster data accumulation
 iterating_search_dictionary = {}
 #taking top 200 cities of each state and putting them in new Dictionary, for example; "City #1" : "Los Angeles", "Atlanta", "Seattle", etc..
@@ -78,6 +79,8 @@ try:
                         search_results_page = BeautifulSoup(r.content, 'html.parser')
                         #creating list of windows that contain url we want
                         data_blocks = search_results_page.find_all('div', class_= 'v-card')
+                        #batch data list to lessen load on db connection
+                        batch_data = []
                         #iterating through each business listing on the search screen
                         for block in data_blocks:
                             #scraping business phone and business name off of initial search results page, so we can create a unique identifier out of their concatenation
@@ -96,8 +99,7 @@ try:
                                         #new request to business profile page
                                         new_request = requests.get(html, headers=headers)
                                         #new soup of the profile page
-                                        business_profile_soup = BeautifulSoup(new_request.content, 'html.parser')
-                                                            
+                                        business_profile_soup = BeautifulSoup(new_request.content, 'html.parser')                    
                                         #business email
                                         business_email = ScrapeFunctions.get_emails(business_profile_soup)
                                         #address
@@ -127,23 +129,25 @@ try:
                                         #formatting business phone number as code so we can compare it to carrier_db to determine which carrier owns phone number
                                         area_exchange_code = business_phone[:6]
                                         phone_carrier = phone_carrier_dict.get(area_exchange_code, '_No Carrier Found_')
+                                        #creating data list to append to batch data list
+                                        business_data = (business_name, business_phone, business_email,full_address, business_website, business_services, years_in_business, other_links, social_links, company_categories, also_known_as, extra_phones,phone_carrier, general_info, unique_id)
+                                        batch_data.append(business_data)
 
-                                        #Define insert statement to push data to SQL db
-                                        query = '''
-                                        INSERT INTO yp_2 ("Business Name","Business Phone","Business Emails","Business Address","Business Website","Business Services","Years in Business","Other Links","Social Links","Company Categories","Company AKA","Extra Phones","Phone Carrier","General Information", "Unique ID")
-                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                                        '''
-                                        #executing instert statement
-                                        data = (business_name, business_phone, business_email, full_address,business_website,business_services, years_in_business, other_links, social_links, company_categories, also_known_as,extra_phones,phone_carrier,general_info, unique_id)
-                                        with conn.cursor() as cur:
-                                            cur.execute(query, data)
-                                            conn.commit()
+                                        
+                                        
+                                        
                                         session_counter += 1
                                         business_counter += 1
                                         existing_numbers[unique_id] = ''
                                         print(f'business {business_counter} on page {counter}')
-                                    
-                                
+                        #defining insert statement for batch inserts, then inserting batch_data list directly into database
+                        query = ''' INSERT INTO yp_2 ("Business Name","Business Phone","Business Emails","Business Address","Business Website","Business Services","Years in Business","Other Links","Social Links","Company Categories","Company AKA","Extra Phones","Phone Carrier","General Information", "Unique ID")
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                '''        
+                        with conn.cursor() as cur:
+                            psycopg2.extras.execute_batch(cur, query, batch_data)
+                            conn.commit()
+                        batch_data.clear()        
                                 #print statement to give visual confirmation that scraping is happening
                         print(f'Processed page {counter} of {category} in {city}, with a total of {business_counter} businesses added.')
                         #determine if there's a next page to navigate to, then moving the page over if it does, breaking if it doesn't

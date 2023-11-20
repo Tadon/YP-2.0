@@ -3,7 +3,10 @@ from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 import re
 import hashlib
-
+import requests
+from bs4 import BeautifulSoup
+import psycopg2.extras
+import time
 class ScrapeFunctions:
     @staticmethod
     def requests_retry_session(retries=3, backoff_factor=0.3, status_forcelist=(500,502,504), session=None):
@@ -214,4 +217,95 @@ class ScrapeFunctions:
             return hash_object.hexdigest()
         except Exception as e:
             return f'Exception: {str(e)}'
-        
+    @staticmethod
+    def process_city_category(city, category, db_params, phone_carrier_dict, existing_numbers, lock):
+        print('thread started')
+        conn = psycopg2.connect(**db_params)
+        cur = conn.cursor()
+        counter = 1
+        total_counter = 0
+        success = False
+        batch_data = []
+        session = ScrapeFunctions.requests_retry_session()
+        while True:
+            url = f'https://www.yellowpages.com/search?search_terms={category}&geo_location_terms={city}&page={counter}'
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/118.0'
+            }
+            
+            for attempt in range(1000):
+                try:
+                    r = session.get(url, headers=headers, timeout=10)
+                    success = True
+                    break
+                except requests.exceptions.RequestException as e:
+                    if attempt >= 999:
+                        print(f'Max attempts reached, Error: {str(e)}')
+                        success = False
+                        break
+                    time.sleep(5)
+            
+            if not success:
+                break
+
+            search_results_page = BeautifulSoup(r.content, 'html.parser')
+            data_blocks = search_results_page.find_all('div', class_= 'v-card')
+            
+            business_counter = 0
+            for block in data_blocks:
+                business_phone = ScrapeFunctions.get_business_phone(block)
+                business_name = ScrapeFunctions.get_business_name(block)
+                unique_id = ScrapeFunctions.unique_identifier(business_name, business_phone)
+                
+                if unique_id not in existing_numbers:
+                    anchor = block.find('a', class_= 'business-name')
+                    
+                    if anchor:
+                        
+                        html = f'https://yellowpages.com{anchor["href"]}' if anchor else '_No Hyperlink Found_'
+                        
+                        if html != '_No Hyperlink Found_' and html != 'https://yellowpages.com':
+                            new_request = requests.get(html, headers = headers)
+                            business_profile_soup = BeautifulSoup(new_request.content, 'html.parser')
+                            business_email = ScrapeFunctions.get_emails(business_profile_soup)
+                            street_address = ScrapeFunctions.get_address(block)
+                            business_locality = ScrapeFunctions.get_locality(block)
+                            full_address = ScrapeFunctions.full_address(street_address, business_locality)
+                            business_website = ScrapeFunctions.get_website(business_profile_soup)
+                            business_services = ScrapeFunctions.get_services(business_profile_soup)
+                            years_in_business = ScrapeFunctions.get_years_in_business(business_profile_soup)
+                            other_links = ScrapeFunctions.get_other_links(business_profile_soup)
+                            social_links = ScrapeFunctions.get_social_links(business_profile_soup)
+                            company_categories = ScrapeFunctions.get_categories(business_profile_soup)
+                            also_known_as = ScrapeFunctions.get_also_known_as(business_profile_soup)
+                            extra_phones = ScrapeFunctions.get_extra_phones(business_profile_soup)
+                            general_info = ScrapeFunctions.get_general_info(business_profile_soup)
+                            area_exchange_code = business_phone[:6]
+                            phone_carrier = phone_carrier_dict.get(area_exchange_code, '_No Carrier Found_')
+                            business_data = (business_name, business_phone, business_email,full_address, business_website, business_services, years_in_business, other_links, social_links, company_categories, also_known_as, extra_phones,phone_carrier, general_info, unique_id)
+                            business_counter += 1
+                            print(f'Scraped business #{business_counter} from page {counter} of {category} in {city}')
+                            with lock:                                
+                                if unique_id not in existing_numbers:
+                                    existing_numbers[unique_id] = ''
+                                    
+                                    batch_data.append(business_data)
+                                    
+                                    
+            total_counter += business_counter 
+            print(f'{business_counter} entries being batched to database. Total count for this thread is {total_counter}.')               
+            query = ''' INSERT INTO yp_2 ("Business Name","Business Phone","Business Emails","Business Address","Business Website","Business Services","Years in Business","Other Links","Social Links","Company Categories","Company AKA","Extra Phones","Phone Carrier","General Information", "Unique ID")
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)'''
+            if batch_data:
+                psycopg2.extras.execute_batch(cur, query, batch_data)
+                conn.commit()
+                batch_data.clear()
+            
+            next_page = search_results_page.find('a', class_= 'next ajax-page')
+            if next_page:
+                counter += 1
+            else:
+                break
+        cur.close()
+        conn.close()
+
