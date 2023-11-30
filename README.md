@@ -1,6 +1,5 @@
 # YP-2.0
 
-Simple Yellow Pages scraper I built to improve on my first project for fun
-built by Mark Klocek @ 2023
-
-search_information kept private so people cant just plug and play scraping YP. Scraping all of YP was not my intention when creating this project
+New scraper for yellowpages.
+Implemented scraping to use PostgreSQL database instead of CSV to allow for easier data manipulation.
+More refractorization and notes to make program easier to read/understand.
